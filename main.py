@@ -3,8 +3,6 @@ import logging
 import sqlite3
 import time
 import os
-from http.server import BaseHTTPRequestHandler, HTTPServer
-import threading
 from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
@@ -17,24 +15,14 @@ STARTING_COINS = 1000
 CLAIM_AMOUNT = 100
 COOLDOWN_HOURS = 24
 
+# Cloud Environmental Variables
+PORT = int(os.environ.get("PORT", 8080))
+# Dynamically extract application URL if provided by hosting provider envs
+APP_URL = os.environ.get("APP_URL", "") 
+
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
 )
-
-# ==================== CLOUD ALIVE KEEPER (WEB SERVER) ====================
-class HealthCheckServer(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-type", "text/plain")
-        self.end_headers()
-        self.wfile.write(b"Bot is alive and running!")
-
-def run_health_server():
-    # Cloud platforms inject a PORT variable. If not found, default to 8080.
-    port = int(os.environ.get("PORT", 8080))
-    server = HTTPServer(("0.0.0.0", port), HealthCheckServer)
-    logging.info(f"Health check web server running on port {port}")
-    server.serve_forever()
 
 # ==================== DATABASE FUNCTIONS ====================
 
@@ -348,9 +336,6 @@ async def roll_dice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     init_db()
 
-    # Start health check server loop in a separate running thread
-    threading.Thread(target=run_health_server, daemon=True).start()
-
     application = Application.builder().token(TOKEN).build()
 
     application.add_handler(CommandHandler("setbet", set_bet_round))
@@ -367,8 +352,18 @@ def main():
     application.add_handler(CommandHandler("balance", check_balance))
     application.add_handler(CommandHandler("leaderboard", leaderboard))
 
-    print("Bot is up and running safely...")
-    application.run_polling()
+    # Fallback initialization structure to prevent crashing if environment strings are absent
+    if not APP_URL:
+        print("Starting via Polling baseline...")
+        application.run_polling()
+    else:
+        print(f"Starting Webhook pipeline on port {PORT} with target {APP_URL}...")
+        application.run_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            url_path=TOKEN,
+            webhook_url=f"{APP_URL}/{TOKEN}"
+        )
 
 if __name__ == '__main__':
     main()
